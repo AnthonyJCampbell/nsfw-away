@@ -126,17 +126,14 @@ async function syncDNRRules() {
           });
         }
       }
-      // Block redgifs.com entirely
+      // Block redgifs.com content from loading within Reddit
       addRules.push({
         id: ruleId++,
         priority: 2,
-        action: {
-          type: 'redirect',
-          redirect: { url: REDIRECT_URL }
-        },
+        action: { type: 'block' },
         condition: {
           urlFilter: '||redgifs.com',
-          resourceTypes: ['main_frame', 'sub_frame']
+          resourceTypes: ['image', 'media', 'sub_frame', 'xmlhttprequest', 'object', 'object_subrequest']
         }
       });
     }
@@ -160,9 +157,9 @@ function setupFirefoxWebRequest() {
     (details) => {
       if (!enabled) return {};
 
-      // Block redgifs.com entirely
+      // Block redgifs.com content from loading within Reddit
       if (details.url.includes('redgifs.com')) {
-        return { redirectUrl: REDIRECT_URL };
+        return { cancel: true };
       }
 
       const match = details.url.match(SUBREDDIT_URL_RE);
@@ -183,7 +180,7 @@ function setupFirefoxWebRequest() {
 
       return {};
     },
-    { urls: ['*://*.reddit.com/r/*', '*://*.redgifs.com/*'], types: ['main_frame', 'sub_frame'] },
+    { urls: ['*://*.reddit.com/r/*', '*://*.redgifs.com/*'], types: ['main_frame', 'sub_frame', 'image', 'media', 'xmlhttprequest', 'object'] },
     ['blocking']
   );
 }
