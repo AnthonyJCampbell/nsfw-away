@@ -237,6 +237,11 @@ api.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return true; // async response
   }
 
+  if (message.type === 'getState') {
+    sendResponse({ enabled, whitelist });
+    return false;
+  }
+
   if (message.type === 'checkNavigation') {
     if (!enabled) {
       sendResponse({ isNSFW: false });

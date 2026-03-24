@@ -59,7 +59,35 @@ const SUBREDDIT_URL_RE = /^\/r\/([A-Za-z0-9_]+)/;
 // ============================================================
 
 (function searchFiltering() {
-  // Wait for DOM to be ready
+  // --- Local state cache ---
+  // We trust Reddit's own DOM NSFW markers and avoid hitting the Reddit API
+  // entirely for search filtering (which caused 429 rate-limit errors).
+  let localEnabled = true;
+  let localWhitelist = [];
+
+  api.runtime.sendMessage({ type: 'getState' }, (response) => {
+    if (api.runtime.lastError) return;
+    if (response) {
+      localEnabled = response.enabled;
+      localWhitelist = (response.whitelist || []).map(s => s.toLowerCase());
+    }
+  });
+
+  api.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local') return;
+    if (changes.enabled) {
+      const v = changes.enabled.newValue;
+      localEnabled = typeof v === 'string' ? JSON.parse(v) : v;
+    }
+    if (changes.whitelist) {
+      const v = changes.whitelist.newValue;
+      const arr = typeof v === 'string' ? JSON.parse(v) : v;
+      localWhitelist = (arr || []).map(s => s.toLowerCase());
+    }
+  });
+
+  // --- Init ---
+
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', initSearchFiltering);
   } else {
@@ -67,13 +95,10 @@ const SUBREDDIT_URL_RE = /^\/r\/([A-Za-z0-9_]+)/;
   }
 
   function initSearchFiltering() {
-    // Only run on search pages
     if (!isSearchPage()) return;
 
-    // Initial scan + observer
     startFiltering();
 
-    // Re-check on URL changes (Reddit SPA navigation)
     let lastUrl = location.href;
     const urlObserver = new MutationObserver(() => {
       if (location.href !== lastUrl) {
@@ -99,15 +124,6 @@ const SUBREDDIT_URL_RE = /^\/r\/([A-Za-z0-9_]+)/;
   const observedShadowRoots = new WeakSet();
 
   function startFiltering() {
-    // Run initial filter pass with polling fallback
-    let pollCount = 0;
-    const pollInterval = setInterval(() => {
-      filterAllResults();
-      pollCount++;
-      if (pollCount >= 20) clearInterval(pollInterval);
-    }, 500);
-
-    // Set up MutationObserver on the main document
     if (mainObserver) mainObserver.disconnect();
     mainObserver = new MutationObserver(() => {
       filterAllResults();
@@ -117,7 +133,6 @@ const SUBREDDIT_URL_RE = /^\/r\/([A-Za-z0-9_]+)/;
       subtree: true
     });
 
-    // Initial filter
     filterAllResults();
   }
 
@@ -129,65 +144,52 @@ const SUBREDDIT_URL_RE = /^\/r\/([A-Za-z0-9_]+)/;
   // --- Search results filtering ---
 
   function filterSearchResults() {
-    const selectors = [
+    if (!localEnabled) return;
+
+    // Named result cards
+    const cardSelectors = [
       '[data-testid="search-community"]',
       '[data-testid="search-post-unit"]',
       '[data-testid="search-author"]'
     ];
-
-    for (const selector of selectors) {
-      const elements = document.querySelectorAll(selector);
-      for (const el of elements) {
-        checkAndRemoveElement(el);
+    for (const selector of cardSelectors) {
+      for (const el of document.querySelectorAll(selector)) {
+        maybeRemove(el);
       }
+    }
+
+    // Catch any remaining elements Reddit tagged as NSFW that aren't
+    // covered by the card selectors above (e.g. sidebar community cards)
+    for (const el of document.querySelectorAll('.text-category-nsfw, [icon-name="nsfw-fill"]')) {
+      const card = el.closest('search-telemetry-tracker, [data-testid], li, article') || el.parentElement;
+      if (card) maybeRemove(card);
     }
   }
 
-  function checkAndRemoveElement(el) {
-    if (isElementNSFW(el)) {
-      const subreddit = extractSubredditFromElement(el);
-      if (subreddit) {
-        // Check whitelist via background
-        api.runtime.sendMessage({ type: 'checkNSFW', subreddit }, (response) => {
-          if (api.runtime.lastError) return;
-          if (response && response.isNSFW) {
-            removeResultElement(el);
-          }
-        });
-      } else {
-        // No subreddit extracted but element is marked NSFW — remove it
-        // But first check if the background confirms (it checks enabled state)
-        removeResultElement(el);
-      }
-    }
+  function maybeRemove(el) {
+    if (el.dataset.nsfwChecked) return; // already processed
+    el.dataset.nsfwChecked = '1';
+
+    if (!isElementNSFW(el)) return;
+
+    const subreddit = extractSubredditFromElement(el);
+    if (subreddit && localWhitelist.includes(subreddit)) return;
+
+    removeResultElement(el);
   }
 
   function isElementNSFW(el) {
-    // Check for NSFW CSS class or icon
     if (el.querySelector('.text-category-nsfw') || el.querySelector('[icon-name="nsfw-fill"]')) {
       return true;
     }
 
-    // Check tracking context on ancestor
-    const tracker = el.closest('search-telemetry-tracker') || el;
-    const ctx = tracker.getAttribute('data-faceplate-tracking-context');
-    if (ctx) {
+    // Check faceplate tracking context on element or nearest tracker ancestor
+    const candidates = [el, el.closest('search-telemetry-tracker')].filter(Boolean);
+    for (const node of candidates) {
+      const ctx = node.getAttribute('data-faceplate-tracking-context');
+      if (!ctx) continue;
       try {
         const parsed = JSON.parse(ctx);
-        if (parsed?.nsfw === true) return true;
-        // Also check nested paths
-        if (parsed?.post?.nsfw === true) return true;
-        if (parsed?.subreddit?.nsfw === true) return true;
-      } catch (e) {
-        // ignore parse errors
-      }
-    }
-
-    // Check self for tracking context
-    const selfCtx = el.getAttribute('data-faceplate-tracking-context');
-    if (selfCtx && selfCtx !== ctx) {
-      try {
-        const parsed = JSON.parse(selfCtx);
         if (parsed?.nsfw === true) return true;
         if (parsed?.post?.nsfw === true) return true;
         if (parsed?.subreddit?.nsfw === true) return true;
@@ -200,22 +202,19 @@ const SUBREDDIT_URL_RE = /^\/r\/([A-Za-z0-9_]+)/;
   }
 
   function extractSubredditFromElement(el) {
-    // Try tracking context first
-    const tracker = el.closest('search-telemetry-tracker') || el;
-    const ctx = tracker.getAttribute('data-faceplate-tracking-context') ||
-                el.getAttribute('data-faceplate-tracking-context');
-    if (ctx) {
+    const candidates = [el, el.closest('search-telemetry-tracker')].filter(Boolean);
+    for (const node of candidates) {
+      const ctx = node.getAttribute('data-faceplate-tracking-context');
+      if (!ctx) continue;
       try {
         const parsed = JSON.parse(ctx);
-        const name = parsed?.subreddit?.name ||
-                     parsed?.data?.subreddit?.name;
+        const name = parsed?.subreddit?.name || parsed?.data?.subreddit?.name;
         if (name) return name.toLowerCase();
       } catch (e) {
         // ignore
       }
     }
 
-    // Try to find subreddit link in element
     const link = el.querySelector('a[href*="/r/"]');
     if (link) {
       const match = link.getAttribute('href').match(/\/r\/([A-Za-z0-9_]+)/);
@@ -226,26 +225,23 @@ const SUBREDDIT_URL_RE = /^\/r\/([A-Za-z0-9_]+)/;
   }
 
   function removeResultElement(el) {
-    // Find the wrapper (search-telemetry-tracker or the element itself)
     const wrapper = el.closest('search-telemetry-tracker') || el;
-
-    // Remove following hr.list-divider-line sibling
     const next = wrapper.nextElementSibling;
     if (next && next.matches('hr.list-divider-line')) {
       next.remove();
     }
-
     wrapper.remove();
   }
 
   // --- Autocomplete / Shadow DOM filtering ---
 
+  const observedShadowRootsSet = new WeakSet();
+
   function filterAutocomplete() {
-    // Look for reddit-search-large custom element
     const searchElements = document.querySelectorAll('reddit-search-large');
     for (const el of searchElements) {
-      if (el.shadowRoot && !observedShadowRoots.has(el.shadowRoot)) {
-        observedShadowRoots.add(el.shadowRoot);
+      if (el.shadowRoot && !observedShadowRootsSet.has(el.shadowRoot)) {
+        observedShadowRootsSet.add(el.shadowRoot);
         observeShadowRoot(el.shadowRoot);
       }
       if (el.shadowRoot) {
@@ -262,14 +258,10 @@ const SUBREDDIT_URL_RE = /^\/r\/([A-Za-z0-9_]+)/;
   }
 
   function filterShadowRoot(shadowRoot) {
-    // Remove NSFW typeahead sections
-    // Try multiple selectors for the NSFW section
     const nsfwSections = shadowRoot.querySelectorAll(
       'summary[aria-controls*="nsfw" i], #nsfw_typeahead_section, [id*="nsfw" i]'
     );
-
     for (const section of nsfwSections) {
-      // Find the parent details/container and remove it
       const container = section.closest('details') || section.parentElement;
       if (container) {
         container.remove();
