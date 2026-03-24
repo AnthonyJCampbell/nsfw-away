@@ -64,6 +64,7 @@ const SUBREDDIT_URL_RE = /^\/r\/([A-Za-z0-9_]+)/;
   // entirely for search filtering (which caused 429 rate-limit errors).
   let localEnabled = true;
   let localWhitelist = [];
+  let mainObserver = null;
 
   api.runtime.sendMessage({ type: 'getState' }, (response) => {
     if (api.runtime.lastError) return;
@@ -119,9 +120,6 @@ const SUBREDDIT_URL_RE = /^\/r\/([A-Za-z0-9_]+)/;
   }
 
   // --- Main filtering logic ---
-
-  let mainObserver = null;
-  const observedShadowRoots = new WeakSet();
 
   function startFiltering() {
     if (mainObserver) mainObserver.disconnect();
