@@ -269,3 +269,56 @@ const SUBREDDIT_URL_RE = /^\/r\/([A-Za-z0-9_]+)/;
     }
   }
 })();
+
+// ============================================================
+// PART 3: Redgifs Embed Blocking
+// ============================================================
+
+(function redgifsBlocking() {
+  let enabled = true;
+
+  api.runtime.sendMessage({ type: 'getState' }, (response) => {
+    if (api.runtime.lastError) return;
+    if (response) enabled = response.enabled;
+  });
+
+  api.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes.enabled) return;
+    const v = changes.enabled.newValue;
+    enabled = typeof v === 'string' ? JSON.parse(v) : v;
+  });
+
+  function removeRedgifsElements() {
+    if (!enabled) return;
+    const selectors = [
+      'iframe[src*="redgifs.com"]',
+      'iframe[data-src*="redgifs.com"]',
+      'video[src*="redgifs.com"]',
+      'source[src*="redgifs.com"]'
+    ];
+    for (const selector of selectors) {
+      for (const el of document.querySelectorAll(selector)) {
+        el.closest('figure, .media-element, [data-testid*="media"], shreddit-player') ?
+          el.closest('figure, .media-element, [data-testid*="media"], shreddit-player').remove() :
+          el.remove();
+      }
+    }
+  }
+
+  const observer = new MutationObserver(removeRedgifsElements);
+
+  const start = () => {
+    removeRedgifsElements();
+    observer.observe(document.body || document.documentElement, {
+      childList: true,
+      subtree: true,
+      attributeFilter: ['src', 'data-src']
+    });
+  };
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
+  }
+})();
