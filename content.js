@@ -288,6 +288,12 @@ const SUBREDDIT_URL_RE = /^\/r\/([A-Za-z0-9_]+)/;
     enabled = typeof v === 'string' ? JSON.parse(v) : v;
   });
 
+  function removeWithSibling(el) {
+    const next = el.nextElementSibling;
+    if (next && next.tagName === 'HR') next.remove();
+    el.remove();
+  }
+
   function removeRedgifsElements() {
     if (!enabled) return;
 
@@ -296,7 +302,8 @@ const SUBREDDIT_URL_RE = /^\/r\/([A-Za-z0-9_]+)/;
     for (const el of document.querySelectorAll(
       'shreddit-post[domain="redgifs.com"], shreddit-post[content-href*="redgifs.com"]'
     )) {
-      (el.closest('article') || el).remove();
+      const article = el.closest('article') || el;
+      removeWithSibling(article);
     }
 
     // Remove redgifs embeds before the iframe is rendered by the custom element
@@ -312,15 +319,30 @@ const SUBREDDIT_URL_RE = /^\/r\/([A-Za-z0-9_]+)/;
     }
   }
 
-  const observer = new MutationObserver(removeRedgifsElements);
+  const observedRoots = new WeakSet();
+
+  function observeRoot(root) {
+    if (observedRoots.has(root)) return;
+    observedRoots.add(root);
+    new MutationObserver(() => {
+      removeRedgifsElements();
+      attachShadowObservers();
+    }).observe(root, { childList: true, subtree: true });
+  }
+
+  // Reddit uses shadow DOMs inside custom elements for feed containers.
+  // Walk all open shadow roots and observe them too.
+  function attachShadowObservers() {
+    const candidates = document.querySelectorAll('shreddit-feed, faceplate-batch, shreddit-profile-feed');
+    for (const el of candidates) {
+      if (el.shadowRoot) observeRoot(el.shadowRoot);
+    }
+  }
 
   const start = () => {
     removeRedgifsElements();
-    observer.observe(document.body || document.documentElement, {
-      childList: true,
-      subtree: true,
-      attributeFilter: ['src', 'data-src']
-    });
+    observeRoot(document.body || document.documentElement);
+    attachShadowObservers();
   };
 
   if (document.readyState === 'loading') {
