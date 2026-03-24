@@ -126,6 +126,19 @@ async function syncDNRRules() {
           });
         }
       }
+      // Block redgifs.com entirely
+      addRules.push({
+        id: ruleId++,
+        priority: 2,
+        action: {
+          type: 'redirect',
+          redirect: { url: REDIRECT_URL }
+        },
+        condition: {
+          urlFilter: '||redgifs.com',
+          resourceTypes: ['main_frame', 'sub_frame']
+        }
+      });
     }
 
     await api.declarativeNetRequest.updateDynamicRules({
@@ -147,6 +160,11 @@ function setupFirefoxWebRequest() {
     (details) => {
       if (!enabled) return {};
 
+      // Block redgifs.com entirely
+      if (details.url.includes('redgifs.com')) {
+        return { redirectUrl: REDIRECT_URL };
+      }
+
       const match = details.url.match(SUBREDDIT_URL_RE);
       if (!match) return {};
 
@@ -165,7 +183,7 @@ function setupFirefoxWebRequest() {
 
       return {};
     },
-    { urls: ['*://*.reddit.com/r/*'], types: ['main_frame'] },
+    { urls: ['*://*.reddit.com/r/*', '*://*.redgifs.com/*'], types: ['main_frame', 'sub_frame'] },
     ['blocking']
   );
 }

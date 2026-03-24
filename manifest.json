@@ -10,7 +10,8 @@
     "webRequestBlocking"
   ],
   "host_permissions": [
-    "*://*.reddit.com/*"
+    "*://*.reddit.com/*",
+    "*://*.redgifs.com/*"
   ],
   "background": {
     "service_worker": "background.js",
