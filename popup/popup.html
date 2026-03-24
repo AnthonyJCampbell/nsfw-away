@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=320">
+  <link rel="stylesheet" href="popup.css">
+  <title>NSFW-Away</title>
+</head>
+<body>
+  <div class="container">
+    <h1 class="title">NSFW-Away</h1>
+
+    <div class="toggle-section">
+      <label class="toggle-label" for="toggle">
+        <span class="toggle-text" id="toggle-text">Enabled</span>
+        <div class="toggle-switch">
+          <input type="checkbox" id="toggle" checked>
+          <span class="toggle-slider"></span>
+        </div>
+      </label>
+    </div>
+
+    <div class="disabled-notice" id="disabled-notice" hidden>
+      Blocking is currently off.
+    </div>
+
+    <div class="whitelist-section">
+      <h2 class="section-title">Whitelisted Subreddits</h2>
+      <div class="whitelist-input">
+        <input type="text" id="whitelist-input" placeholder="subreddit name" autocomplete="off" spellcheck="false">
+        <button id="whitelist-add" type="button">Add</button>
+      </div>
+      <ul class="whitelist-list" id="whitelist-list"></ul>
+      <p class="whitelist-empty" id="whitelist-empty">No whitelisted subreddits.</p>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
