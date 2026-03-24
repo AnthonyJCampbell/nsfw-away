@@ -290,18 +290,25 @@ const SUBREDDIT_URL_RE = /^\/r\/([A-Za-z0-9_]+)/;
 
   function removeRedgifsElements() {
     if (!enabled) return;
-    const selectors = [
-      'iframe[src*="redgifs.com"]',
-      'iframe[data-src*="redgifs.com"]',
-      'video[src*="redgifs.com"]',
-      'source[src*="redgifs.com"]'
-    ];
-    for (const selector of selectors) {
-      for (const el of document.querySelectorAll(selector)) {
-        el.closest('figure, .media-element, [data-testid*="media"], shreddit-player') ?
-          el.closest('figure, .media-element, [data-testid*="media"], shreddit-player').remove() :
-          el.remove();
-      }
+
+    // Remove entire post cards where the content is from redgifs.com
+    // (domain attr is server-rendered, available before custom element init)
+    for (const el of document.querySelectorAll(
+      'shreddit-post[domain="redgifs.com"], shreddit-post[content-href*="redgifs.com"]'
+    )) {
+      (el.closest('article') || el).remove();
+    }
+
+    // Remove redgifs embeds before the iframe is rendered by the custom element
+    for (const el of document.querySelectorAll(
+      'shreddit-embed[providername="RedGIFs"], shreddit-embed[html*="redgifs.com"]'
+    )) {
+      (el.closest('shreddit-aspect-ratio, shreddit-async-loader') || el).remove();
+    }
+
+    // Catch any already-rendered iframes
+    for (const el of document.querySelectorAll('iframe[src*="redgifs.com"]')) {
+      el.remove();
     }
   }
 
