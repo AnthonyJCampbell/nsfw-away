@@ -13,19 +13,45 @@ const SUBREDDIT_URL_RE = /^\/r\/([A-Za-z0-9_]+)/;
 // ============================================================
 
 (function navigationFallback() {
-  const path = window.location.pathname;
-  const match = path.match(SUBREDDIT_URL_RE);
-  if (!match) return;
+  function checkCurrentUrl() {
+    const path = window.location.pathname;
+    const match = path.match(SUBREDDIT_URL_RE);
+    if (!match) return;
 
-  const subreddit = match[1];
+    const subreddit = match[1];
 
-  api.runtime.sendMessage({ type: 'checkNavigation', subreddit }, (response) => {
-    if (api.runtime.lastError) return; // extension context invalidated
-    if (response && response.isNSFW) {
-      window.stop();
-      window.location.replace(REDIRECT_URL);
+    api.runtime.sendMessage({ type: 'checkNavigation', subreddit }, (response) => {
+      if (api.runtime.lastError) return; // extension context invalidated
+      if (response && response.isNSFW) {
+        window.stop();
+        window.location.replace(REDIRECT_URL);
+      }
+    });
+  }
+
+  // Run on initial page load
+  checkCurrentUrl();
+
+  // Also monitor for SPA navigation (Reddit uses history.pushState)
+  let lastNavUrl = location.href;
+  const navObserver = new MutationObserver(() => {
+    if (location.href !== lastNavUrl) {
+      lastNavUrl = location.href;
+      checkCurrentUrl();
     }
   });
+
+  const startNavObserver = () => {
+    const target = document.body || document.documentElement;
+    if (target) {
+      navObserver.observe(target, { childList: true, subtree: true });
+    } else {
+      document.addEventListener('DOMContentLoaded', () => {
+        navObserver.observe(document.body || document.documentElement, { childList: true, subtree: true });
+      });
+    }
+  };
+  startNavObserver();
 })();
 
 // ============================================================
